@@ -1,0 +1,30 @@
+{
+  "name": "tps-oc2",
+  "version": "0.1.0",
+  "description": "Live tokens-per-second (TPS) for every session in the OpenCode 2.0 TUI sidebar",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    "./tui": {
+      "import": "./src/index.tsx"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "0.0.0-next-17055",
+    "@opentui/solid": "0.5.1",
+    "solid-js": "1.9.12"
+  },
+  "devDependencies": {
+    "@opencode-ai/client": "0.0.0-next-17055",
+    "@opencode-ai/theme": "0.0.0-next-17055",
+    "@opentui/core": "0.5.1",
+    "typescript": "^5.8.0"
+  }
+}

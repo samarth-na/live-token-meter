@@ -35,10 +35,10 @@ function mockContext() {
       },
     },
     ui: {
-      slot: (name: string, render: (props: any) => unknown) => {
-        captured.slots.push({ name, render })
+      slot: (claim: unknown) => {
+        captured.slots.push(claim as { name: string; render: (props: any) => unknown })
         const disposer = () => {
-          captured.slots = captured.slots.filter((s) => s.render !== render)
+          captured.slots = []
         }
         captured.disposers.push(disposer)
         return disposer
@@ -61,13 +61,16 @@ function mockContext() {
   }
 }
 
-describe("tps-oc2 plugin", () => {
-  test("registers the prompt.footer.end slot and returns cleanup", async () => {
+describe("live-token-meter plugin", () => {
+  test("registers the prompt.footer.status slot and returns cleanup", async () => {
     const { context, captured } = mockContext()
     const cleanup = plugin.setup(context) as () => void
 
-    expect(plugin.id).toBe("tps-oc2")
-    expect(captured.slots.map((s) => s.name)).toEqual(["prompt.footer.end"])
+    expect(plugin.id).toBe("live-token-meter")
+    expect(captured.slots).toHaveLength(1)
+    const claim = captured.slots[0] as any
+    expect(claim.append).toBe("prompt.footer.status")
+    expect(typeof claim.render).toBe("function")
     expect(typeof cleanup).toBe("function")
   })
 
@@ -133,7 +136,10 @@ describe("tps-oc2 plugin", () => {
     const { context, emit, store, captured } = mockContext()
     const cleanup = plugin.setup(context) as () => void
 
-    emit("session.step.started", { created: 0, data: { sessionID: "s1", model: { id: "m" } } })
+    emit("session.step.started", {
+      created: 0,
+      data: { sessionID: "s1", model: { id: "m" } },
+    })
     emit("session.step.failed", {
       created: 100,
       data: { sessionID: "s1", error: { type: "unknown", message: "provider exploded" } },

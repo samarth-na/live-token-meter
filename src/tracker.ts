@@ -15,13 +15,13 @@ export type TpsSession = {
   liveTps: number
   /** Estimated tokens produced this step so far. */
   liveTokens: number
-  /** Milliseconds since the step started streaming. */
+  /** Milliseconds of active streaming time in this step. */
   elapsedMs: number
   /** Exact avg tokens/sec of the last completed step. */
   lastTps: number
   /** Exact output (+reasoning) tokens of the last completed step. */
   lastTokens: number
-  /** Duration of the last completed step in ms. */
+  /** Active streaming duration of the last completed step in ms. */
   lastDurationMs: number
   /** Provider finish reason of the last completed step. */
   lastFinish?: string
@@ -51,6 +51,9 @@ export function emptySession(): TpsSession {
 }
 
 export type Mutate = (mutation: (draft: TpsStore) => void) => void
+
+/** Minimum live elapsed time (ms) used as the TPS denominator. */
+const MIN_LIVE_ELAPSED_MS = 1000
 
 type Counters = {
   /** Accumulated chars from text + reasoning deltas of the in-flight step. */
@@ -113,10 +116,11 @@ export function createTracker(charsPerToken: number, mutate: Mutate): TpsTracker
       entry.chars += text.length
       const elapsedMs = Math.max(1, createdMs - entry.stepStart)
       const liveTokens = entry.chars / charsPerToken
+      const liveTps = liveTokens / (Math.max(MIN_LIVE_ELAPSED_MS, elapsedMs) / 1000)
       patch(sessionID, {
         status: "streaming",
         liveTokens,
-        liveTps: liveTokens / (elapsedMs / 1000),
+        liveTps,
         elapsedMs,
       })
     },

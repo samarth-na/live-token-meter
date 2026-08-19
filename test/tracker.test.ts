@@ -44,6 +44,16 @@ describe("live TPS estimate", () => {
     expect(snap.liveTps).toBeCloseTo(10, 5)
   })
 
+  test("limits early burst estimates", () => {
+    const { state, tracker } = makeHarness()
+    tracker.stepStarted("s1", 0)
+    tracker.delta("s1", "x".repeat(400), 50)
+
+    const snap = state.sessions["s1"]!
+    expect(snap.liveTokens).toBeCloseTo(100, 5) // 400 chars / 4
+    expect(snap.liveTps).toBeCloseTo(100, 5) // minimum 1s denominator
+  })
+
   test("guards against division by zero", () => {
     const { state, tracker } = makeHarness()
     tracker.stepStarted("s1", 1000)

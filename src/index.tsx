@@ -15,14 +15,15 @@ export type TpsOptions = {
 type Context = Plugin.Context
 
 /**
- * tps-oc2 — live tokens-per-second in the OpenCode 2.0 TUI prompt footer.
+ * live-token-meter — live tokens-per-second in the OpenCode 2.0 TUI prompt
+ * footer.
  *
- * Registers the `prompt.footer.end` slot so the footer line below the input
- * shows a live TPS readout while the model streams, and the settled step
- * stats once the step finishes.
+ * Registers the `prompt.footer.status` slot so the status line in the prompt
+ * footer shows a live TPS readout while the model streams, and the settled
+ * step stats once the step finishes.
  */
 export default Plugin.define({
-  id: "tps-oc2",
+  id: "live-token-meter",
   setup: (context: Context) => {
     const options: Required<TpsOptions> = {
       enabled: true,
@@ -32,7 +33,7 @@ export default Plugin.define({
     }
     if (!options.enabled) return
 
-    const [store, mutate] = context.storage.memory<TpsStore>("tps-oc2", {
+    const [store, mutate] = context.storage.memory<TpsStore>("live-token-meter", {
       initial: { sessions: {} },
     })
     const tracker = createTracker(options.charsPerToken, mutate)
@@ -58,14 +59,17 @@ export default Plugin.define({
       context.data.on("session.step.failed", (event) =>
         tracker.stepFailed(event.data.sessionID, event.data.error?.message ?? "step failed"),
       ),
-      context.ui.slot("prompt.footer.end", (props) => (
-        <TpsFooter
-          sessionID={props.sessionID}
-          store={store}
-          theme={context.theme}
-          showTotals={options.showTotals}
-        />
-      )),
+      context.ui.slot({
+        append: "prompt.footer.status",
+        render: (props) => (
+          <TpsFooter
+            sessionID={props.sessionID}
+            store={store}
+            theme={context.theme}
+            showTotals={options.showTotals}
+          />
+        ),
+      }),
     ]
 
     return () => {

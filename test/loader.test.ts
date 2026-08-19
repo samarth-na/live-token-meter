@@ -10,7 +10,7 @@ const { formatTps, formatTokens, formatDuration } = await import("../src/tps-pan
 
 describe("loader contract", () => {
   test("default export has id and setup", () => {
-    expect(plugin.id).toBe("tps-oc2")
+    expect(plugin.id).toBe("live-token-meter")
     expect(typeof plugin.setup).toBe("function")
   })
 })

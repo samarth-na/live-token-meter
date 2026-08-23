@@ -14,7 +14,7 @@ finishes, it shows the exact average from the provider's token accounting.
 ┌────────────────────────────────────────────────────────────┐
 │ ...                                         30.5K (3%)     │
 │  33.3 tok/s · total 15k tok                  ctrl+p ...    │   ← streaming
-│                                                             │
+                                                             │
 │ ...                                         30.5K (3%)     │
 │  ✓ 200 tok/s · 15k tok · total 15k tok       ctrl+p ...    │   ← last step
 └────────────────────────────────────────────────────────────┘
@@ -39,8 +39,11 @@ on first start):
 // ~/.config/opencode/cli.json
 {
   "plugins": [
-    { "package": "live-token-meter", "options": { "charsPerToken": 4, "showTotals": true } }
-  ]
+    {
+      "package": "live-token-meter",
+      "options": { "charsPerToken": 4, "showTotals": true },
+    },
+  ],
 }
 ```
 
@@ -49,7 +52,7 @@ Or as a bare specifier, which is also what a string entry means in
 
 ```jsonc
 {
-  "plugins": ["live-token-meter"]
+  "plugins": ["live-token-meter"],
 }
 ```
 
@@ -57,7 +60,7 @@ You can pin a version:
 
 ```jsonc
 {
-  "plugins": ["live-token-meter@0.1.0"]
+  "plugins": ["live-token-meter@0.1.0"],
 }
 ```
 
@@ -72,8 +75,11 @@ plain paths (no `exports` map), so give it a file, not a directory:
 ```jsonc
 {
   "plugins": [
-    { "package": "/absolute/path/to/live-token-meter/src/index.tsx", "options": { "charsPerToken": 4 } }
-  ]
+    {
+      "package": "/absolute/path/to/live-token-meter/src/index.tsx",
+      "options": { "charsPerToken": 4 },
+    },
+  ],
 }
 ```
 
@@ -82,11 +88,11 @@ A directory spec is also supported if the repo provides a `tui/` entry point
 
 ## Options
 
-| Option          | Default | Description                                        |
-| --------------- | ------- | -------------------------------------------------- |
-| `enabled`       | `true`  | Set to `false` to disable the plugin.              |
+| Option          | Default | Description                                                                             |
+| --------------- | ------- | --------------------------------------------------------------------------------------- |
+| `enabled`       | `true`  | Set to `false` to disable the plugin.                                                   |
 | `charsPerToken` | `4`     | Chars per token for the live estimate. Tune per provider (Anthropic ≈ 4, OpenAI ≈ 4.2). |
-| `showTotals`    | `true`  | Show the session-wide cumulative token count.      |
+| `showTotals`    | `true`  | Show the session-wide cumulative token count.                                           |
 
 ## How it works
 

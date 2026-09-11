@@ -17,8 +17,9 @@ describe("live TPS estimate", () => {
     const snap = state.sessions["s1"]!
     expect(snap.status).toBe("streaming")
     expect(snap.liveTokens).toBeCloseTo(10, 5) // 40 chars / 4
-    expect(snap.liveTps).toBeCloseTo(10, 5) // 10 tokens over 1s
-    expect(snap.elapsedMs).toBe(1000)
+    // first delta starts the clock (TTFT excluded), 1s minimum denominator
+    expect(snap.liveTps).toBeCloseTo(10, 5)
+    expect(snap.elapsedMs).toBe(1)
     expect(snap.model).toBe("some-model")
   })
 
@@ -26,22 +27,35 @@ describe("live TPS estimate", () => {
     const { state, tracker } = makeHarness()
     tracker.stepStarted("s1", 0)
     tracker.delta("s1", "x".repeat(20), 500)
-    tracker.delta("s1", "y".repeat(20), 1000)
+    tracker.delta("s1", "y".repeat(20), 1500)
 
     const snap = state.sessions["s1"]!
     expect(snap.liveTokens).toBeCloseTo(10, 5) // 40 chars / 4
-    expect(snap.liveTps).toBeCloseTo(10, 5) // 10 tokens over 1s
+    // clock starts at first delta (500): 10 tokens over max(1s, 1000ms)
+    expect(snap.liveTps).toBeCloseTo(10, 5)
+    expect(snap.elapsedMs).toBe(1000)
   })
 
-  test("counts reasoning deltas too", () => {
+  test("ignores reasoning deltas (native is output-only)", () => {
     const { state, tracker } = makeHarness()
     tracker.stepStarted("s1", 0)
     tracker.delta("s1", "x".repeat(20), 500) // text
-    tracker.delta("s1", "r".repeat(20), 1000) // reasoning
+    tracker.reasoningDelta("s1") // reasoning: no TPS advance
 
     const snap = state.sessions["s1"]!
-    expect(snap.liveTokens).toBeCloseTo(10, 5)
-    expect(snap.liveTps).toBeCloseTo(10, 5)
+    expect(snap.liveTokens).toBeCloseTo(5, 5)
+  })
+
+  test("excludes TTFT from the live clock", () => {
+    const { state, tracker } = makeHarness()
+    tracker.stepStarted("s1", 0)
+    tracker.delta("s1", "x".repeat(40), 5000) // first visible token at 5s
+    tracker.delta("s1", "y".repeat(40), 6000)
+
+    const snap = state.sessions["s1"]!
+    // 20 tokens over 1s of visible streaming, not 6s since step start
+    expect(snap.liveTps).toBeCloseTo(20, 5)
+    expect(snap.elapsedMs).toBe(1000)
   })
 
   test("limits early burst estimates", () => {
@@ -70,18 +84,55 @@ describe("live TPS estimate", () => {
 })
 
 describe("step settlement", () => {
-  test("uses exact tokens and full duration for final tps", () => {
+  test("uses exact output tokens and streamed boundary for final tps", () => {
     const { state, tracker } = makeHarness()
     tracker.stepStarted("s1", 0)
     tracker.delta("s1", "abc", 1500)
-    tracker.stepEnded("s1", 2000, { output: 200, reasoning: 50 }, "end_turn")
+    tracker.streamed("s1", 2000) // provider body end, before tool settlement
+    tracker.stepEnded("s1", 5000, { output: 200, reasoning: 50 }, "stop")
 
     const snap = state.sessions["s1"]!
     expect(snap.status).toBe("done")
-    expect(snap.lastTokens).toBe(250)
-    expect(snap.lastTps).toBeCloseTo(125, 5) // 250 tokens / 2s
+    // reasoning excluded (native parity): 200 output / 2s
+    expect(snap.lastTokens).toBe(200)
+    expect(snap.lastTps).toBeCloseTo(100, 5)
     expect(snap.lastDurationMs).toBe(2000)
-    expect(snap.lastFinish).toBe("end_turn")
+    expect(snap.lastFinish).toBe("stop")
+    expect(snap.lastSuppressed).toBe(false)
+  })
+
+  test("suppresses tool-call finishes", () => {
+    const { state, tracker } = makeHarness()
+    tracker.stepStarted("s1", 0)
+    tracker.stepEnded("s1", 2000, { output: 200 }, "tool-calls")
+
+    const snap = state.sessions["s1"]!
+    expect(snap.status).toBe("done")
+    expect(snap.lastSuppressed).toBe(true)
+    expect(snap.lastTps).toBe(0)
+    expect(snap.lastTokens).toBe(200)
+  })
+
+  test("suppresses buffered sub-250ms bursts (issue #46883)", () => {
+    const { state, tracker } = makeHarness()
+    tracker.stepStarted("s1", 0)
+    // 4096 tokens arriving in 29ms would read as 141k tok/s
+    tracker.stepEnded("s1", 29, { output: 4096 }, "stop")
+
+    const snap = state.sessions["s1"]!
+    expect(snap.lastSuppressed).toBe(true)
+    expect(snap.lastTps).toBe(0)
+  })
+
+  test("prefers request-start timestamp when provided (PR #47125)", () => {
+    const { state, tracker } = makeHarness()
+    // provider waited 2690ms, then streamed for 10ms
+    tracker.stepStarted("s1", 2690, undefined, 0)
+    tracker.stepEnded("s1", 2700, { output: 12 }, "stop")
+
+    const snap = state.sessions["s1"]!
+    expect(snap.lastDurationMs).toBe(2700)
+    expect(snap.lastTps).toBeCloseTo(12 / 2.7, 5)
   })
 
   test("pauses to working between text streams and on text end", () => {

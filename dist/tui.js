@@ -17,12 +17,16 @@ function emptySession() {
   };
 }
 var MIN_LIVE_ELAPSED_MS = 1000;
+var MIN_SETTLED_ELAPSED_MS = 250;
+function isReportableFinish(finish) {
+  return finish === "stop" || finish === "length";
+}
 function createTracker(charsPerToken, mutate) {
   const counters = new Map;
   function counter(sessionID) {
     let entry = counters.get(sessionID);
     if (!entry) {
-      entry = { chars: 0, stepStart: null };
+      entry = { chars: 0, stepStart: null, firstDelta: null, streamed: null };
       counters.set(sessionID, entry);
     }
     return entry;
@@ -36,10 +40,12 @@ function createTracker(charsPerToken, mutate) {
     });
   }
   return {
-    stepStarted(sessionID, createdMs, model) {
+    stepStarted(sessionID, createdMs, model, requestStartedMs) {
       const entry = counter(sessionID);
       entry.chars = 0;
-      entry.stepStart = createdMs;
+      entry.stepStart = requestStartedMs ?? createdMs;
+      entry.firstDelta = null;
+      entry.streamed = null;
       patch(sessionID, { status: "working", model, liveTps: 0, liveTokens: 0, elapsedMs: 0 });
     },
     textStarted(sessionID) {
@@ -49,8 +55,10 @@ function createTracker(charsPerToken, mutate) {
       const entry = counter(sessionID);
       if (entry.stepStart === null)
         entry.stepStart = createdMs;
+      if (entry.firstDelta === null)
+        entry.firstDelta = createdMs;
       entry.chars += text.length;
-      const elapsedMs = Math.max(1, createdMs - entry.stepStart);
+      const elapsedMs = Math.max(1, createdMs - entry.firstDelta);
       const liveTokens = entry.chars / charsPerToken;
       const liveTps = liveTokens / (Math.max(MIN_LIVE_ELAPSED_MS, elapsedMs) / 1000);
       patch(sessionID, {
@@ -60,19 +68,39 @@ function createTracker(charsPerToken, mutate) {
         elapsedMs
       });
     },
+    reasoningDelta() {},
     textEnded(sessionID) {
       patch(sessionID, { status: "working" });
     },
+    streamed(sessionID, createdMs) {
+      counter(sessionID).streamed = createdMs;
+    },
     stepEnded(sessionID, createdMs, tokens, finish) {
       const entry = counter(sessionID);
-      const elapsedMs = Math.max(1, createdMs - (entry.stepStart ?? createdMs));
-      const output = tokens.output + (tokens.reasoning ?? 0);
+      const output = tokens.output;
+      const endMs = entry.streamed ?? createdMs;
+      const elapsedMs = Math.max(1, endMs - (entry.stepStart ?? endMs));
+      if (!isReportableFinish(finish) || output <= 0 || elapsedMs < MIN_SETTLED_ELAPSED_MS) {
+        patch(sessionID, {
+          status: "done",
+          lastTps: 0,
+          lastTokens: output,
+          lastDurationMs: elapsedMs,
+          lastFinish: finish,
+          lastSuppressed: true,
+          liveTps: 0,
+          liveTokens: 0,
+          elapsedMs: 0
+        });
+        return;
+      }
       patch(sessionID, {
         status: "done",
         lastTps: output / (elapsedMs / 1000),
         lastTokens: output,
         lastDurationMs: elapsedMs,
         lastFinish: finish,
+        lastSuppressed: false,
         liveTps: 0,
         liveTokens: 0,
         elapsedMs: 0
@@ -157,12 +185,19 @@ function TpsFooter(props) {
             }, _$p));
             return _el$4;
           })(), (() => {
-            var _el$6 = _$createElement("span"), _el$7 = _$createTextNode(` `), _el$8 = _$createTextNode(` tok/s \xB7 `), _el$9 = _$createTextNode(` tok`);
+            var _el$6 = _$createElement("span"), _el$7 = _$createTextNode(` `);
             _$insertNode(_el$6, _el$7);
-            _$insertNode(_el$6, _el$8);
-            _$insertNode(_el$6, _el$9);
-            _$insert(_el$6, () => formatTps(item().lastTps), _el$8);
-            _$insert(_el$6, () => formatTokens(item().lastTokens), _el$9);
+            _$insert(_el$6, _$createComponent(Show, {
+              get when() {
+                return _$memo(() => !!!item().lastSuppressed)() && item().lastTps > 0;
+              },
+              get fallback() {
+                return `${formatTokens(item().lastTokens)} tok`;
+              },
+              get children() {
+                return [_$memo(() => formatTps(item().lastTps)), " tok/s \xB7 ", _$memo(() => formatTokens(item().lastTokens)), " tok"];
+              }
+            }), null);
             _$effect((_$p) => _$setProp(_el$6, "style", {
               fg: text.default
             }, _$p));
@@ -174,26 +209,26 @@ function TpsFooter(props) {
           return item().status === "failed";
         },
         get children() {
-          var _el$0 = _$createElement("span");
-          _$insertNode(_el$0, _$createTextNode(`\u2717 step failed`));
-          _$effect((_$p) => _$setProp(_el$0, "style", {
+          var _el$8 = _$createElement("span");
+          _$insertNode(_el$8, _$createTextNode(`\u2717 step failed`));
+          _$effect((_$p) => _$setProp(_el$8, "style", {
             fg: feedback.error.default
           }, _$p));
-          return _el$0;
+          return _el$8;
         }
       }), _$createComponent(Show, {
         get when() {
           return _$memo(() => !!props.showTotals)() && item().totalTokens > 0;
         },
         get children() {
-          var _el$10 = _$createElement("span"), _el$11 = _$createTextNode(` \xB7 total `), _el$12 = _$createTextNode(` tok`);
-          _$insertNode(_el$10, _el$11);
-          _$insertNode(_el$10, _el$12);
-          _$insert(_el$10, () => formatTokens(item().totalTokens), _el$12);
-          _$effect((_$p) => _$setProp(_el$10, "style", {
+          var _el$0 = _$createElement("span"), _el$1 = _$createTextNode(` \xB7 total `), _el$10 = _$createTextNode(` tok`);
+          _$insertNode(_el$0, _el$1);
+          _$insertNode(_el$0, _el$10);
+          _$insert(_el$0, () => formatTokens(item().totalTokens), _el$10);
+          _$effect((_$p) => _$setProp(_el$0, "style", {
             fg: text.subdued
           }, _$p));
-          return _el$10;
+          return _el$0;
         }
       })]
     }));
@@ -219,26 +254,42 @@ var src_default = Plugin.define({
       }
     });
     const tracker = createTracker(options.charsPerToken, mutate);
-    const unsubs = [context.data.on("session.step.started", (event) => tracker.stepStarted(event.data.sessionID, event.created, event.data.model.id)), context.data.on("session.text.started", (event) => tracker.textStarted(event.data.sessionID)), context.data.on("session.text.delta", (event) => tracker.delta(event.data.sessionID, event.data.delta, event.created)), context.data.on("session.reasoning.delta", (event) => tracker.delta(event.data.sessionID, event.data.delta, event.created)), context.data.on("session.text.ended", (event) => tracker.textEnded(event.data.sessionID)), context.data.on("session.step.ended", (event) => {
-      tracker.stepEnded(event.data.sessionID, event.created, event.data.tokens, event.data.finish);
-      if (options.showTotals) {
-        tracker.setTotalTokens(event.data.sessionID, sumSessionTokens(context, event.data.sessionID));
-      }
-    }), context.data.on("session.step.failed", (event) => tracker.stepFailed(event.data.sessionID, event.data.error?.message ?? "step failed")), context.ui.slot({
-      append: "prompt.footer.status",
-      render: (props) => _$createComponent2(TpsFooter, {
-        get sessionID() {
-          return props.sessionID;
-        },
-        store,
-        get theme() {
-          return context.theme;
-        },
-        get showTotals() {
-          return options.showTotals;
+    const unsubs = [
+      context.data.on("session.step.started", (event) => tracker.stepStarted(event.data.sessionID, event.created, event.data.model.id, event.data.started)),
+      context.data.on("session.text.started", (event) => tracker.textStarted(event.data.sessionID)),
+      context.data.on("session.text.delta", (event) => tracker.delta(event.data.sessionID, event.data.delta, event.created)),
+      context.data.on("session.reasoning.delta", (event) => tracker.reasoningDelta(event.data.sessionID)),
+      context.data.on("session.text.ended", (event) => tracker.textEnded(event.data.sessionID)),
+      ...(() => {
+        try {
+          return [context.data.on("session.step.streamed", (event) => tracker.streamed(event.data.sessionID, event.created))];
+        } catch {
+          return [];
         }
+      })(),
+      context.data.on("session.step.ended", (event) => {
+        tracker.stepEnded(event.data.sessionID, event.created, event.data.tokens, event.data.finish);
+        if (options.showTotals) {
+          tracker.setTotalTokens(event.data.sessionID, sumSessionTokens(context, event.data.sessionID));
+        }
+      }),
+      context.data.on("session.step.failed", (event) => tracker.stepFailed(event.data.sessionID, event.data.error?.message ?? "step failed")),
+      context.ui.slot({
+        append: "prompt.footer.status",
+        render: (props) => _$createComponent2(TpsFooter, {
+          get sessionID() {
+            return props.sessionID;
+          },
+          store,
+          get theme() {
+            return context.theme;
+          },
+          get showTotals() {
+            return options.showTotals;
+          }
+        })
       })
-    })];
+    ];
     return () => {
       for (const unsub of unsubs)
         unsub();
@@ -251,7 +302,6 @@ function sumSessionTokens(context, sessionID) {
     if (message.type !== "assistant")
       continue;
     total += message.tokens?.output ?? 0;
-    total += message.tokens?.reasoning ?? 0;
   }
   return total;
 }

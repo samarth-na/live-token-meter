@@ -99,18 +99,28 @@ A directory spec is also supported if the repo provides a `tui/` entry point
 Built against the OpenCode 2.0 TUI plugin API (`@opencode-ai/plugin/tui`,
 `define({ id, setup })`):
 
-- Registers the `prompt.footer.end` slot (the footer line below the input,
-  next to the context indicator) via `context.ui.slot`.
+- Registers the `prompt.footer.status` slot via `context.ui.slot`.
 - Subscribes to the server event stream with `context.data.on`:
-  - `session.step.started` — start the timing window
-  - `session.text.delta` / `session.reasoning.delta` — live estimate from
-    character deltas (`chars / charsPerToken`, default 4)
-  - `session.step.ended` — exact `tokens.output + tokens.reasoning` divided
-    by the step duration
+  - `session.step.started` — start the timing window (uses request-start
+    `started` when the server provides it, PR #47125)
+  - `session.text.delta` — live estimate from visible-text character deltas
+    (`chars / charsPerToken`, default 4); reasoning deltas are ignored
+  - `session.step.streamed` (merged PR #45265) — provider response-body end,
+    before tool settlement; absent on older servers, falls back to `step.ended`
+  - `session.step.ended` — exact `tokens.output` divided by the streamed window
   - `session.step.failed` — error state
+- Settled TPS matches native `turnTokensPerSecond`: output tokens only,
+  `stop`/`length` finishes only, sub-250ms buffered bursts suppressed
+  (issue #46883, PR #42112 floor).
 - Per-session reactive state lives in a solid-js store via
   `context.storage.memory`, so the slot re-renders on every delta.
-- The session-wide token total is summed from `context.data.session.message.list`.
+- The session-wide token total sums `tokens.output` from
+  `context.data.session.message.list`.
+
+Native opencode2 already shows settled turn throughput (`· X.X tok/s`) in the
+assistant footer behind `session.tps` (default on). This plugin complements
+it with live rolling tok/s while streaming (issue #47914) plus last-step and
+total in the prompt footer.
 
 ## Development
 
@@ -142,12 +152,15 @@ The package manifest follows the plugin packaging contract:
 
 ## Notes
 
-- The live value is an **estimate** (chars / `charsPerToken`); the settled
-  value after each step is exact (provider usage accounting).
+- The live value is an **estimate** (visible chars / `charsPerToken`); the
+  settled value after each step is exact (provider usage accounting).
+- Settled numbers now match native: output-only, streamed window, tool-call
+  and sub-250ms samples hidden instead of showing inflated rates.
 - Each open session is tracked independently via its `sessionID`.
-- Pinned to the `@opencode-ai/plugin@0.0.0-next-17055` API (matches the
+- Pinned to the `@opencode-ai/plugin@0.0.0-next-17317` API (matches the
   `opencode2` `next` binary). The TUI plugin API is beta and may change —
-  bump the pinned versions when you upgrade opencode2.
+  bump the pinned versions when you upgrade opencode2. Newer `started` /
+  `streamed` fields are used opportunistically and ignored when absent.
 
 ## License
 

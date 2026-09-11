@@ -57,7 +57,12 @@ export function TpsFooter(props: {
               <span style={{ fg: feedback.success.default }}>✓</span>
               <span style={{ fg: text.default }}>
                 {" "}
-                {formatTps(item().lastTps)} tok/s · {formatTokens(item().lastTokens)} tok
+                <Show
+                  when={!item().lastSuppressed && item().lastTps > 0}
+                  fallback={`${formatTokens(item().lastTokens)} tok`}
+                >
+                  {formatTps(item().lastTps)} tok/s · {formatTokens(item().lastTokens)} tok
+                </Show>
               </span>
             </Show>
             <Show when={item().status === "failed"}>

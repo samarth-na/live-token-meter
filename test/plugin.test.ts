@@ -94,16 +94,17 @@ describe("live-token-meter plugin", () => {
     })
     emit("session.text.started", { created: 10, data: { sessionID: "s1" } })
     emit("session.text.delta", { created: 1000, data: { sessionID: "s1", delta: "x".repeat(40) } })
+    // reasoning excluded from live TPS (native parity)
     emit("session.reasoning.delta", { created: 2000, data: { sessionID: "s1", delta: "y".repeat(40) } })
 
     const live = store.sessions["s1"]!
     expect(live.status).toBe("streaming")
-    expect(live.liveTokens).toBeCloseTo(20, 5) // 80 chars / 4
-    expect(live.liveTps).toBeCloseTo(10, 5) // 20 tokens over 2s
+    expect(live.liveTokens).toBeCloseTo(10, 5) // 40 chars / 4
+    expect(live.liveTps).toBeCloseTo(10, 5) // 10 tokens over max(1s, 1s visible)
     expect(live.model).toBe("m")
   })
 
-  test("settles with exact tokens and updates totals from state", () => {
+  test("settles with output-only tokens and updates totals from state", () => {
     const { context, emit, store, messages } = mockContext()
     plugin.setup(context)
 
@@ -126,10 +127,12 @@ describe("live-token-meter plugin", () => {
 
     const settled = store.sessions["s1"]!
     expect(settled.status).toBe("done")
-    expect(settled.lastTokens).toBe(400)
-    expect(settled.lastTps).toBeCloseTo(200, 5) // 400 tokens / 2s
+    // reasoning excluded to match native turnTokensPerSecond
+    expect(settled.lastTokens).toBe(300)
+    expect(settled.lastTps).toBeCloseTo(150, 5) // 300 tokens / 2s
     expect(settled.lastFinish).toBe("stop")
-    expect(settled.totalTokens).toBe(1700) // 1000 + 200 + 500 from state
+    expect(settled.lastSuppressed).toBe(false)
+    expect(settled.totalTokens).toBe(1500) // 1000 + 500 output from state
   })
 
   test("marks failed steps and unsubscribes on cleanup", () => {

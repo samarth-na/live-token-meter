@@ -36,14 +36,21 @@ describe("live TPS estimate", () => {
     expect(snap.elapsedMs).toBe(1000)
   })
 
-  test("ignores reasoning deltas (native is output-only)", () => {
+  test("estimates reasoning separately from visible text", () => {
     const { state, tracker } = makeHarness()
     tracker.stepStarted("s1", 0)
     tracker.delta("s1", "x".repeat(20), 500) // text
-    tracker.reasoningDelta("s1") // reasoning: no TPS advance
+    tracker.reasoningDelta("s1", "y".repeat(80), 5000)
+    expect(state.sessions.s1!.phase).toBe("reasoning")
+    expect(state.sessions.s1!.liveTokens).toBe(20)
+    expect(state.sessions.s1!.liveTps).toBe(20)
+    tracker.reasoningEnded("s1")
+    tracker.delta("s1", "z".repeat(20), 6000)
 
     const snap = state.sessions["s1"]!
-    expect(snap.liveTokens).toBeCloseTo(5, 5)
+    expect(snap.phase).toBe("text")
+    expect(snap.liveTokens).toBeCloseTo(10, 5)
+    expect(snap.liveTps).toBeCloseTo(10 / 5.5, 5)
   })
 
   test("excludes TTFT from the live clock", () => {
@@ -158,6 +165,56 @@ describe("step settlement", () => {
 })
 
 describe("sessions", () => {
+  test("keeps parallel tools active after text and reasoning end", () => {
+    const { state, tracker } = makeHarness()
+    tracker.stepStarted("s1", 0)
+    tracker.reasoningStarted("s1")
+    tracker.toolInputStarted("s1", "a")
+    tracker.toolCalled("s1", "a")
+    tracker.toolCalled("s1", "b")
+    tracker.reasoningEnded("s1")
+    tracker.textEnded("s1")
+    tracker.streamed("s1", 1000)
+    expect(state.sessions.s1!.phase).toBe("tools")
+    tracker.toolEnded("s1", "a")
+    expect(state.sessions.s1!.phase).toBe("tools")
+    tracker.toolEnded("s1", "b")
+    expect(state.sessions.s1!.phase).toBe("settling")
+    tracker.stepEnded("s1", 2000, { output: 100 }, "tool-calls")
+    tracker.toolEnded("s1", "b")
+    expect(state.sessions.s1!.status).toBe("done")
+  })
+
+  test("resets live output on retry and interruption without losing totals", () => {
+    const { state, tracker } = makeHarness()
+    tracker.stepStarted("s1", 0)
+    tracker.setTotalTokens("s1", 100)
+    tracker.delta("s1", "x".repeat(40), 1000)
+    tracker.waiting("s1")
+    expect(state.sessions.s1!.phase).toBe("waiting")
+    expect(state.sessions.s1!.liveTps).toBe(0)
+    tracker.stepStarted("s1", 2000)
+    tracker.delta("s1", "x".repeat(20), 3000)
+    expect(state.sessions.s1!.liveTokens).toBe(5)
+    tracker.toolCalled("s1", "a")
+    tracker.interrupted("s1")
+    tracker.toolEnded("s1", "a")
+    expect(state.sessions.s1!.status).toBe("interrupted")
+    expect(state.sessions.s1!.totalTokens).toBe(100)
+  })
+
+  test("does not display a stale rate for empty deltas or a new text part", () => {
+    const { state, tracker } = makeHarness()
+    tracker.stepStarted("s1", 0)
+    tracker.delta("s1", "", 1000)
+    expect(state.sessions.s1!.status).toBe("working")
+    tracker.delta("s1", "hello", 2000)
+    tracker.textEnded("s1")
+    tracker.textStarted("s1")
+    expect(state.sessions.s1!.status).toBe("working")
+    expect(state.sessions.s1!.phase).toBe("text")
+  })
+
   test("keeps sessions isolated", () => {
     const { state, tracker } = makeHarness()
     tracker.stepStarted("a", 0)

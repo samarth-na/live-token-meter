@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-// Simulate the host loader: dynamic import of the plugin entry (Bun transpiles
-// the .tsx at import time, exactly like the opencode TUI plugin loader does).
-// If the JSX pragma or imports were wrong, this import would throw.
+// bunfig.toml loads the OpenTUI Solid transform used for local TSX plugins.
 const mod = await import("../src/index.tsx")
 const plugin = mod.default as { id: string; setup: (ctx: any) => unknown }
 

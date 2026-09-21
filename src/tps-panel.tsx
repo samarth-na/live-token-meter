@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import type { ResolvedTheme } from "@opencode-ai/theme/tui"
+import type { ResolvedTheme } from "@opencode/theme/tui"
 import { Show } from "solid-js"
 import type { Store } from "solid-js/store"
 import type { TpsSession, TpsStore } from "./tracker"
@@ -27,8 +27,23 @@ export function formatDuration(ms: number): string {
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
 }
 
+export function formatActivity(item: TpsSession): string {
+  if (item.status === "streaming") {
+    const label = item.phase === "reasoning" ? " · thinking" : item.phase === "tool-input" ? " · tool call" : ""
+    return `~${formatTps(item.liveTps)} tok/s${label}`
+  }
+  switch (item.phase) {
+    case "reasoning": return "Thinking…"
+    case "text": return "Receiving text…"
+    case "tool-input": return "Generating tool call…"
+    case "tools": return "Running tools…"
+    case "settling": return "Finishing step…"
+    default: return "Waiting for response…"
+  }
+}
+
 /**
- * Prompt-footer readout. Renders inside the `prompt.footer.end` slot, on the
+ * Prompt-footer readout. Renders inside the `prompt.footer.status` slot, on the
  * same line as the context indicator: a live TPS value while a step streams,
  * the settled step stats when it finishes, and the session-wide token total.
  */
@@ -40,8 +55,7 @@ export function TpsFooter(props: {
 }) {
   const session = (): TpsSession | undefined =>
     props.sessionID ? props.store.sessions[props.sessionID] : undefined
-  const text = props.theme.text
-  const feedback = text.feedback
+  const text = () => props.theme.text
 
   return (
     <text wrapMode="none">
@@ -49,13 +63,13 @@ export function TpsFooter(props: {
         {(item) => (
           <>
             <Show when={item().status === "streaming" || item().status === "working"}>
-              <span style={{ fg: text.action.primary.default }}>
-                {item().status === "streaming" ? formatTps(item().liveTps) : "—"} tok/s
+              <span style={{ fg: text().action.primary.base }}>
+                {formatActivity(item())}
               </span>
             </Show>
             <Show when={item().status === "done"}>
-              <span style={{ fg: feedback.success.default }}>✓</span>
-              <span style={{ fg: text.default }}>
+              <span style={{ fg: text().feedback.success.base }}>✓</span>
+              <span style={{ fg: text().base }}>
                 {" "}
                 <Show
                   when={!item().lastSuppressed && item().lastTps > 0}
@@ -66,10 +80,13 @@ export function TpsFooter(props: {
               </span>
             </Show>
             <Show when={item().status === "failed"}>
-              <span style={{ fg: feedback.error.default }}>✗ step failed</span>
+              <span style={{ fg: text().feedback.error.base }}>✗ step failed</span>
+            </Show>
+            <Show when={item().status === "interrupted"}>
+              <span style={{ fg: text().muted }}>Interrupted</span>
             </Show>
             <Show when={props.showTotals && item().totalTokens > 0}>
-              <span style={{ fg: text.subdued }}> · total {formatTokens(item().totalTokens)} tok</span>
+              <span style={{ fg: text().muted }}> · total {formatTokens(item().totalTokens)} tok</span>
             </Show>
           </>
         )}

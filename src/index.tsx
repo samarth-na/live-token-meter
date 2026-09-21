@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { Plugin } from "@opencode-ai/plugin/tui"
+import { Plugin } from "@opencode/plugin/tui"
 import { createTracker, type TpsStore } from "./tracker"
 import { TpsFooter } from "./tps-panel"
 
@@ -18,12 +18,8 @@ type Context = Plugin.Context
  * live-token-meter — live tokens-per-second in the OpenCode 2.0 TUI prompt
  * footer.
  *
- * Native opencode2 (merged PR #45265) already shows settled turn throughput
- * (`· X.X tok/s`) in the assistant footer from `time.streamed - time.created`
- * (output tokens only, tool time excluded) behind the `session.tps` setting.
- * This plugin complements it: live rolling tok/s while streaming (requested
- * in issue #47914, which native does not provide), plus the last-step rate
- * computed the same native way and the session total.
+ * Shows estimated throughput for text, reasoning, and tool-call arguments.
+ * Completed-step rates and session totals use provider output tokens.
  *
  * Registers the `prompt.footer.status` slot so the status line in the prompt
  * footer shows a live TPS readout while the model streams, and the settled
@@ -46,39 +42,41 @@ export default Plugin.define({
     const tracker = createTracker(options.charsPerToken, mutate)
 
     const unsubs: Array<() => void> = [
+      context.data.on("session.execution.started", (event) => tracker.waiting(event.data.sessionID)),
+      context.data.on("session.retry.scheduled", (event) => tracker.waiting(event.data.sessionID)),
       context.data.on("session.step.started", (event) =>
         tracker.stepStarted(
           event.data.sessionID,
           event.created,
           event.data.model.id,
-          // PR #47125 adds request-start `started`; older servers omit it.
-          (event.data as { started?: number }).started,
+          event.data.started,
         ),
       ),
       context.data.on("session.text.started", (event) => tracker.textStarted(event.data.sessionID)),
       context.data.on("session.text.delta", (event) =>
         tracker.delta(event.data.sessionID, event.data.delta, event.created),
       ),
-      // Reasoning excluded from TPS (native is visible-output-only).
+      context.data.on("session.reasoning.started", (event) => tracker.reasoningStarted(event.data.sessionID)),
       context.data.on("session.reasoning.delta", (event) =>
-        tracker.reasoningDelta(event.data.sessionID),
+        tracker.reasoningDelta(event.data.sessionID, event.data.delta, event.created),
       ),
+      context.data.on("session.reasoning.ended", (event) => tracker.reasoningEnded(event.data.sessionID)),
       context.data.on("session.text.ended", (event) => tracker.textEnded(event.data.sessionID)),
-      // Merged PR #45265: provider response-body boundary, before tool settlement.
-      // Registered defensively: old servers never emit it and settlement falls
-      // back to `step.ended`.
-      ...((() => {
-        try {
-          return [
-            (context.data.on as (...args: [string, (event: any) => void]) => () => void)(
-              "session.step.streamed",
-              (event) => tracker.streamed(event.data.sessionID, event.created),
-            ),
-          ]
-        } catch {
-          return []
-        }
-      })()),
+      context.data.on("session.tool.input.started", (event) =>
+        tracker.toolInputStarted(event.data.sessionID, event.data.id),
+      ),
+      context.data.on("session.tool.input.delta", (event) =>
+        tracker.toolInputDelta(event.data.sessionID, event.data.id, event.data.delta, event.created),
+      ),
+      context.data.on("session.tool.input.ended", (event) =>
+        tracker.toolInputEnded(event.data.sessionID, event.data.id),
+      ),
+      context.data.on("session.tool.called", (event) => tracker.toolCalled(event.data.sessionID, event.data.id)),
+      context.data.on("session.tool.success", (event) => tracker.toolEnded(event.data.sessionID, event.data.id)),
+      context.data.on("session.tool.failed", (event) => tracker.toolEnded(event.data.sessionID, event.data.id)),
+      context.data.on("session.step.streamed", (event) =>
+        tracker.streamed(event.data.sessionID, event.created),
+      ),
       context.data.on("session.step.ended", (event) => {
         tracker.stepEnded(event.data.sessionID, event.created, event.data.tokens, event.data.finish)
         if (options.showTotals) {
@@ -88,6 +86,7 @@ export default Plugin.define({
       context.data.on("session.step.failed", (event) =>
         tracker.stepFailed(event.data.sessionID, event.data.error?.message ?? "step failed"),
       ),
+      context.data.on("session.execution.interrupted", (event) => tracker.interrupted(event.data.sessionID)),
       context.ui.slot({
         append: "prompt.footer.status",
         render: (props) => (
@@ -107,8 +106,7 @@ export default Plugin.define({
   },
 })
 
-/** Sum assistant visible-output tokens across a session's messages.
- *  Matches native `turnTokensPerSecond` (output only, reasoning excluded). */
+/** Sum provider output tokens from cached assistant messages, excluding reasoning. */
 function sumSessionTokens(context: Context, sessionID: string): number {
   let total = 0
   for (const message of context.data.session.message.list(sessionID)) {

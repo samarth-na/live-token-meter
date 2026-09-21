@@ -25,14 +25,19 @@
     "prepublishOnly": "bun run typecheck && bun run build && bun run test"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "0.0.0-next-17317",
-    "@opentui/solid": "0.5.1",
-    "solid-js": "1.9.12"
+    "@opencode/plugin": "2.0.12"
+  },
+  "peerDependencies": {
+    "@opentui/core": ">=0.5.10",
+    "@opentui/solid": ">=0.5.10",
+    "solid-js": ">=1.9.15"
   },
   "devDependencies": {
-    "@opencode-ai/client": "0.0.0-next-17317",
-    "@opencode-ai/theme": "0.0.0-next-17317",
-    "@opentui/core": "0.5.1",
+    "@opencode/client": "2.0.12",
+    "@opencode/theme": "2.0.12",
+    "@opentui/core": "0.5.10",
+    "@opentui/solid": "0.5.10",
+    "solid-js": "1.9.15",
     "typescript": "^5.8.0"
   },
   "keywords": [
